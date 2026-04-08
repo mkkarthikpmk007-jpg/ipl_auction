@@ -57,6 +57,7 @@ const CRICKET_PLAYERS = [
     { name: "Prasidh Krishna", role: "BOWL", base: 1.00, is_overseas: false },
     { name: "Cameron Green", role: "AR", base: 1.00, is_overseas: true },
     { name: "Sam Curran", role: "AR", base: 1.00, is_overseas: true },
+    { name: "Wanindu Hasaranga", role: "AR", base: 1.00, is_overseas: true },
 
     // ⚔️ SET 6 (0.90 Cr)
     { name: "Devdutt Padikkal", role: "BAT", base: 0.90, is_overseas: false },
@@ -79,12 +80,20 @@ const CRICKET_PLAYERS = [
     { name: "Rachin Ravindra", role: "AR", base: 0.75, is_overseas: true },
     { name: "Azmatullah Omarzai", role: "AR", base: 0.75, is_overseas: true },
     { name: "Matheesha Pathirana", role: "BOWL", base: 0.75, is_overseas: true },
+    { name: "Pat Cummins", role: "BOWL", base: 0.75, is_overseas: true },
+    { name: "Travis Head", role: "BAT", base: 0.75, is_overseas: true },
 
     // 🔥 SET 8 (0.50 Cr)
     { name: "Ayush Badoni", role: "AR", base: 0.50, is_overseas: false },
     { name: "Shahrukh Khan", role: "AR", base: 0.50, is_overseas: false },
     { name: "Nandre Burger", role: "BOWL", base: 0.50, is_overseas: true },
     { name: "Spencer Johnson", role: "BOWL", base: 0.50, is_overseas: true },
+    { name: "Maheesh Theekshana", role: "BOWL", base: 0.50, is_overseas: true },
+    { name: "Adam Zampa", role: "BOWL", base: 0.50, is_overseas: true },
+    { name: "David Warner", role: "BAT", base: 0.50, is_overseas: true },
+    { name: "Faf du Plessis", role: "BAT", base: 0.50, is_overseas: true },
+    { name: "Mohit Sharma", role: "BOWL", base: 0.50, is_overseas: false },
+    { name: "Khaleel Ahmed", role: "BOWL", base: 0.50, is_overseas: false },
 
     // 🚀 SET 9 (0.50 Cr)
     { name: "KS Bharat", role: "WK", base: 0.50, is_overseas: false },
@@ -120,6 +129,7 @@ const CRICKET_PLAYERS = [
     { name: "Prince Yadav", role: "BOWL", base: 0.40, is_overseas: false },
     { name: "Venkatesh Iyer", role: "AR", base: 0.40, is_overseas: false },
     { name: "Marco Jansen", role: "AR", base: 0.40, is_overseas: true },
+    { name: "Noor Ahmad", role: "BOWL", base: 0.40, is_overseas: true },
 
     // 💪 SET 12 (UPDATED – 0.30 Cr)
     { name: "Luvnith Sisodia", role: "WK", base: 0.30, is_overseas: false },
@@ -127,7 +137,7 @@ const CRICKET_PLAYERS = [
     { name: "Nehal Wadhera", role: "BAT", base: 0.30, is_overseas: false },
     { name: "Abhinav Manohar", role: "BAT", base: 0.30, is_overseas: false },
     { name: "Shashank Singh", role: "BAT", base: 0.30, is_overseas: false },
-    { name: "Mukesh Kumar", role: "BOWL", base: 0.30, is_overseas: false },
+    { name: "Sandeep Sharma", role: "BOWL", base: 0.30, is_overseas: false },
     { name: "Yudhvir Singh", role: "BOWL", base: 0.30, is_overseas: false },
     { name: "Rasikh Dar", role: "BOWL", base: 0.30, is_overseas: false },
     { name: "Shahbaz Ahmed", role: "AR", base: 0.30, is_overseas: false },
@@ -137,7 +147,7 @@ const CRICKET_PLAYERS = [
     { name: "Anuj Rawat", role: "WK", base: 0.30, is_overseas: false },
     { name: "Dhruv Jurel", role: "WK", base: 0.30, is_overseas: false },
     { name: "Rajat Patidar", role: "BAT", base: 0.30, is_overseas: false },
-    { name: "Ayush Badoni", role: "BAT", base: 0.30, is_overseas: false },
+    { name: "Manish Pandey", role: "BAT", base: 0.30, is_overseas: false },
     { name: "Swastik Chikara", role: "BAT", base: 0.30, is_overseas: false },
     { name: "Tushar Deshpande", role: "BOWL", base: 0.30, is_overseas: false },
     { name: "Suyash Sharma", role: "BOWL", base: 0.30, is_overseas: false },
@@ -152,8 +162,35 @@ const CRICKET_PLAYERS = [
     { name: "Naman Dhir", role: "BAT", base: 0.20, is_overseas: false },
     { name: "Riyan Parag", role: "AR", base: 0.20, is_overseas: false },
     { name: "Kulwant Khejroliya", role: "BOWL", base: 0.20, is_overseas: false },
-    { name: "Akash Singh", role: "BOWL", base: 0.20, is_overseas: false },
+    { name: "Manav Suthar", role: "BOWL", base: 0.20, is_overseas: false },
     { name: "Saurabh Kumar", role: "AR", base: 0.20, is_overseas: false },
     { name: "Fazalhaq Farooqi", role: "BOWL", base: 0.20, is_overseas: true },
     { name: "Reece Topley", role: "BOWL", base: 0.20, is_overseas: true }
 ];
+
+// ---------- Player order randomisation ----------
+// Shuffle players within each price set (base value) to ensure varied auction order.
+function shuffleArray(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+// Group players by their base price (set)
+const _playerGroups = {};
+CRICKET_PLAYERS.forEach(p => {
+  const key = p.base;
+  if (!_playerGroups[key]) _playerGroups[key] = [];
+  _playerGroups[key].push(p);
+});
+
+// Shuffle each group individually
+Object.values(_playerGroups).forEach(group => shuffleArray(group));
+
+// Rebuild CRICKET_PLAYERS preserving the original set order (high to low)
+CRICKET_PLAYERS.length = 0;
+[2.00, 1.75, 1.50, 1.25, 1.00, 0.90, 0.75, 0.50, 0.40, 0.30, 0.20].forEach(base => {
+  if (_playerGroups[base]) CRICKET_PLAYERS.push(..._playerGroups[base]);
+});
+// ---------------------------------------------------
