@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AETHRYX - MASTER MONITOR</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        window.onerror = function(msg, src, ln, col, err) { alert("JS Error: " + msg + " at line " + ln); return false; };
+        window.onunhandledrejection = function(e) { alert("Promise Error: " + (e.reason && e.reason.message ? e.reason.message : e.reason)); };
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Syncopate:wght@700&family=Montserrat:wght@900&display=swap');
+        :root { --theme: #00f2ff; --bg: #030508; --gold: #facc15; --red: #ff4d4d; }
+        body { margin: 0; background: var(--bg); color: #fff; font-family: 'Montserrat'; display: flex; height: 100vh; overflow: hidden; }
+        .monitor-panel { flex: 0.75; background: #080a0f; padding: 20px; border-left: 1px solid #1a202c; overflow-y: auto; }
+        .team-card { background: rgba(255,255,255,0.02); border: 1px solid #1a202c; border-radius: 12px; padding: 15px; margin-bottom: 12px; border-left: 4px solid var(--theme); cursor: pointer; transition: 0.2s; }
+        .auction-panel { flex: 2; display: flex; align-items: center; justify-content: center; }
+        .main-box { width: 90%; max-width: 800px; padding: 40px; background: #0a0f19; border: 3px solid var(--theme); border-radius: 40px; text-align: center; box-shadow: 0 0 40px var(--theme); position: relative; }
+        #t-display { font-family: 'Syncopate'; font-size: 45px; color: var(--theme); }
+        .btn { background: var(--theme); color: #000; border: none; padding: 10px 15px; border-radius: 50px; font-weight: 900; cursor: pointer; font-size: 10px; text-transform: uppercase; }
+        #status-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 5000; flex-direction: column; justify-content: center; align-items: center; border: 8px solid var(--theme); margin: 25px; border-radius: 45px; text-align: center; }
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 6000; justify-content: center; align-items: center; }
+        .modal-box { background: #0a0f19; border: 2px solid var(--theme); padding: 30px; border-radius: 30px; width: 550px; max-height: 85vh; overflow-y: auto; }
+        .cat-title { color: var(--theme); border-bottom: 1px solid #333; margin: 15px 0 5px 0; font-weight: 900; text-align: left; }
+    </style>
+</head>
+<body>
+    <div id="status-overlay">
+        <h1 id="status-title" style="font-size:70px; margin:0;">SOLD</h1>
+        <div id="status-player" style="font-size:45px; font-weight:900; color:#fff;">PLAYER</div>
+        <div id="status-details" style="font-size:30px; color:var(--gold);">---</div>
+    </div>
+
+    <div class="top-bar" style="position:absolute; top:20px; left:20px; right:20px; display:flex; justify-content: space-between; z-index: 100;">
+        <div style="display:flex; gap:8px;">
+            <div id="room-display" style="background:rgba(255,255,255,0.1); padding:10px 15px; border-radius:12px; font-weight:900; color:var(--theme); font-size:10px;">ROOM: ---</div>
+            <button class="btn" onclick="copyInvite()" id="share-btn">SHARE</button>
+            <button class="btn" style="background:var(--red); color:#fff;" onclick="resetAuction()">RESET</button>
+            <button class="btn" onclick="viewPlayers()">VIEW PLAYERS</button>
+        </div>
+        <div id="t-display">00</div>
+    </div>
+
+    <div class="auction-panel">
+        <div class="main-box">
+            <h1 id="p-name" style="font-size:60px; margin:0;">READY</h1>
+            <div id="p-role-base" style="color:var(--gold); font-size:18px;">---</div>
+            <div style="font-size:100px; font-weight:900; margin:15px 0;">₹<span id="p-price">0.00</span> Cr</div>
+            <p>BIDDER: <b id="p-bidder">NONE</b></p>
+            <button class="btn" onclick="moveToNextPlayerAuto()" id="start-btn" style="width:100%; height:50px; font-size:18px;">START AUCTION</button>
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; margin-top:20px;">
+                <button class="btn" id="pause-btn" style="background:transparent; border:1px solid var(--gold); color:var(--gold);" onclick="togglePause()">PAUSE</button>
+                <button class="btn" onclick="moveToNextPlayerAuto()">NEXT PLAYER</button>
+                <button class="btn" style="background:#22c55e; color:#fff;" onclick="markSold()">MARK SOLD</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="monitor-panel"><div id="teams-list"></div></div>
+    <div id="squad-modal" class="modal"><div class="modal-box"><h2 id="modal-team-name">SQUAD</h2><div id="modal-content"></div><button class="btn" style="width:100%; margin-top:20px;" onclick="closeModal()">CLOSE</button></div></div>
+
+    <script src="players_list.js?v=2"></script>
+    <script src="auction_engine.js?v=2"></script>
+    <script>
+        const SB_URL = "https://egwsnptrjcyavfnnanti.supabase.co"; 
+        const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnd3NucHRyamN5YXZmbm5hbnRpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3MDg1NTQsImV4cCI6MjA5MDI4NDU1NH0.ZY9MbJDOaBCjyaWKtm0tiM2s_QzRAU3OXFTCauopaBA";
+        const _supabase = supabase.createClient(SB_URL, SB_KEY);
+        const roomCode = new URLSearchParams(window.location.search).get('room')?.toUpperCase() || "BJG03";
+        document.getElementById('room-display').innerText = "ROOM: " + roomCode;
+
+        let teamData = {}, timerInt;
+
+        async function init() {
+            await fetchTeams();
+            _supabase.channel('auc').on('postgres_changes', { event: 'UPDATE', table: 'auction_state' }, p => {
+                updateUI(p.new);
+                if (p.new.timer_ends_at) startTimer(new Date(p.new.timer_ends_at).getTime());
+                else clearInterval(timerInt);
+            }).subscribe();
+            _supabase.channel('sq').on('postgres_changes', { event: '*', table: 'squads' }, () => fetchTeams()).subscribe();
+        }
+
+        function updateUI(d) {
+            const pObj = CRICKET_PLAYERS.find(x => x.name === d.active_player);
+            document.getElementById('p-name').innerText = d.active_player + (pObj?.is_overseas ? " (OS)" : "");
+            document.getElementById('p-price').innerText = (d.current_bid/100).toFixed(2);
+            document.getElementById('p-bidder').innerText = d.high_bidder || "NONE";
+            if(pObj) document.getElementById('p-role-base').innerText = `${pObj.role} | BASE: ₹${pObj.base.toFixed(2)} Cr`;
+            document.getElementById('start-btn').style.display = (d.active_player === "READY") ? "block" : "none";
+            
+            // Update Pause Button state
+            const pauseBtn = document.getElementById('pause-btn');
+            if (d.timer_ends_at) {
+                pauseBtn.innerText = "PAUSE";
+                pauseBtn.style.background = "transparent";
+                pauseBtn.style.color = "var(--gold)";
+            } else if (d.active_player !== "READY") {
+                pauseBtn.innerText = "RESUME";
+                pauseBtn.style.background = "var(--gold)";
+                pauseBtn.style.color = "#000";
+            }
+        }
+
+        function startTimer(endAt) {
+            clearInterval(timerInt);
+            timerInt = setInterval(() => {
+                const diff = Math.ceil((endAt - Date.now())/1000);
+                const val = diff < 0 ? 0 : diff; // Removed the cap at 9
+                document.getElementById('t-display').innerText = val.toString().padStart(2,'0');
+                const root = document.documentElement;
+                if(val > 3 && val <= 6) root.style.setProperty('--theme', '#facc15');
+                else if(val <= 3) root.style.setProperty('--theme', '#ff4d4d');
+                if(val <= 0 && !autoTriggered) {
+                    clearInterval(timerInt);
+                    processEndOfTimer();
+                }
+            }, 1000);
+        }
+
+        async function fetchTeams() {
+            const { data } = await _supabase.from('squads').select('*').eq('room_code', roomCode);
+            if(data) {
+                teamData = {}; const list = document.getElementById('teams-list'); list.innerHTML = "";
+                data.forEach(d => {
+                    const pList = (d.players || []).map(p => typeof p === 'string' ? JSON.parse(p) : p);
+                    teamData[d.team_name] = { purse: d.purse, players: pList };
+                    let pNames = pList.map(p => p.name).join(', ');
+                    if (d.team_name !== 'UNSOLD') {
+                        list.innerHTML += `<div class="team-card" onclick="showSquad('${d.team_name}')"><b>${d.team_name}</b><br>₹${parseFloat(d.purse).toFixed(2)} Cr<div style="font-size:10.5px; color:#aaa; margin-top:6px; line-height:1.4;">${pNames}</div></div>`;
+                    }
+                });
+            }
+        }
+
+        function showSquad(t) {
+            const team = teamData[t]; const cats = { "BAT": "Batsmen", "AR": "All-Rounders", "WK": "Wicket Keepers", "BOWL": "Bowlers" };
+            let html = ""; for (let key in cats) {
+                let filtered = team.players.filter(p => p.role === key);
+                if(filtered.length > 0) {
+                    html += `<div class="cat-title">${cats[key]}</div>`;
+                    filtered.forEach(p => html += `<p style="font-size:12px; margin:5px 0;">• ${p.name} <span style="float:right; color:var(--gold);">₹${p.price.toFixed(2)}</span></p>`);
+                }
+            }
+            document.getElementById('modal-content').innerHTML = html || "No players";
+            document.getElementById('modal-team-name').innerText = t + " SQUAD";
+            document.getElementById('squad-modal').style.display = "flex";
+        }
+
+        async function viewPlayers() {
+            const { data } = await _supabase.from('squads').select('players').eq('room_code', roomCode);
+            let sold = new Set(); data.forEach(t => (t.players || []).forEach(p => sold.add((typeof p === 'string' ? JSON.parse(p) : p).name)));
+            let html = ""; for(let i=0; i<CRICKET_PLAYERS.length; i++) {
+                if(i%10===0) html += `<div style="color:var(--gold); margin-top:15px; font-size:14px; border-bottom:1px solid #333;">SET ${Math.floor(i/10)+1}</div>`;
+                const p = CRICKET_PLAYERS[i]; const isS = sold.has(p.name);
+                html += `<p style="font-size:12px; margin:4px 0; color:${isS?'#444':'#fff'}">• ${p.name} ${isS?'<b style="color:var(--red)">[SOLD]</b>':''}</p>`;
+            }
+            document.getElementById('modal-content').innerHTML = html;
+            document.getElementById('modal-team-name').innerText = "PLAYER POOL";
+            document.getElementById('squad-modal').style.display = "flex";
+        }
+
+        function closeModal() { document.getElementById('squad-modal').style.display = "none"; }
+        function markSold() { processEndOfTimer(); }
+        function copyInvite() {
+            navigator.clipboard.writeText(window.location.origin + "/player.html?room=" + roomCode).then(() => {
+                const btn = document.getElementById('share-btn'); btn.innerText = "COPIED!";
+                setTimeout(() => btn.innerText = "SHARE", 2000);
+            });
+        }
+        init();
+    </script>
+</body>
+</html>

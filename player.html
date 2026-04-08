@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AETHRYX - PLAYER</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --theme: #00f2ff; }
+        body { background: #030508; color: #fff; font-family: sans-serif; text-align: center; padding: 15px; margin: 0; }
+        .header-team { background: var(--theme); color: #000; padding: 12px; font-weight: 900; font-size: 18px; border-radius: 0 0 15px 15px; margin-bottom: 10px; text-transform: uppercase; }
+        .purse-bar { background: rgba(0,242,255,0.1); border: 1px solid var(--theme); padding: 10px; border-radius: 12px; color: var(--theme); font-weight: 900; margin-bottom: 10px; }
+        .timer-box { font-size: 50px; color: var(--theme); margin: 5px 0; border: 2px solid var(--theme); display: inline-block; padding: 10px 30px; border-radius: 15px; font-weight: 900; }
+        .btn-bid { background: var(--theme); color: #000; padding: 22px; border-radius: 50px; width: 100%; font-size: 22px; font-weight: 900; border: none; }
+        .btn-bid:disabled { background: #333 !important; color: #777 !important; }
+        .view-pill { background: rgba(255,255,255,0.05); border: 1px solid var(--theme); color: var(--theme); padding: 8px 15px; border-radius: 20px; font-size: 10px; font-weight: 900; display: inline-block; margin-bottom: 10px; cursor: pointer; }
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 6000; padding: 20px; }
+        .modal-box { background: #0a0f19; border: 2px solid var(--theme); padding: 20px; border-radius: 20px; height: 80vh; overflow-y: auto; text-align: left; }
+    </style>
+</head>
+<body>
+    <div id="setup-screen" style="display:none; padding-top:50px;">
+        <h2 style="color:var(--theme);">SELECT TEAM</h2>
+        <select id="team-drop" style="width:100%; padding:15px; background:#111; color:#fff; border:1px solid #333; border-radius:10px;"></select>
+        <button class="btn-bid" style="margin-top:20px;" onclick="join()">JOIN AUCTION</button>
+    </div>
+
+    <div id="auction-screen" style="display:none;">
+        <div class="header-team" id="my-t">---</div>
+        <div class="view-pill" onclick="showAll()">VIEW PLAYER LIST</div>
+        <div class="purse-bar">WALLET: ₹<span id="my-p">60.00</span> Cr</div>
+        <div id="timer" class="timer-box">00</div>
+        <h2 id="p-name" style="text-transform:uppercase; margin:5px 0;">READY</h2>
+        <div id="p-info" style="color:#facc15; font-size:12px; margin-bottom:10px;">---</div>
+        <h1 id="p-price" style="font-size:38px; margin:10px 0;">₹0.00 Cr</h1>
+        <button class="btn-bid" id="bid-btn" onclick="bid()">BID (BASE)</button>
+        <div id="squad-list" style="margin-top:20px; text-align:left; background:#0a0f19; padding:15px; border-radius:15px; font-size:12px;"></div>
+    </div>
+
+    <div id="p-modal" class="modal"><div class="modal-box"><h3 style="color:var(--theme); text-align:center;">PLAYER POOL</h3><div id="p-content"></div><button class="btn-bid" style="margin-top:20px; padding:12px;" onclick="document.getElementById('p-modal').style.display='none'">CLOSE</button></div></div>
+
+    <script src="players_list.js"></script>
+    <script>
+        const SB_URL = "https://egwsnptrjcyavfnnanti.supabase.co"; 
+        const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnd3NucHRyamN5YXZmbm5hbnRpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3MDg1NTQsImV4cCI6MjA5MDI4NDU1NH0.ZY9MbJDOaBCjyaWKtm0tiM2s_QzRAU3OXFTCauopaBA";
+        const _supabase = supabase.createClient(SB_URL, SB_KEY);
+        const roomCode = new URLSearchParams(window.location.search).get('room')?.toUpperCase() || "BJG03";
+        let myTeam = localStorage.getItem('team_' + roomCode), timerReq;
+
+        async function init() { if (myTeam) start(); else showJoin(); }
+
+        async function showJoin() {
+            document.getElementById('setup-screen').style.display = "block";
+            const { data } = await _supabase.from('squads').select('team_name').eq('room_code', roomCode);
+            const all = ["CSK", "RCB", "MI", "KKR", "SRH", "GT", "LSG", "RR", "DC", "PBKS"];
+            const taken = (data || []).map(t => t.team_name);
+            const drop = document.getElementById('team-drop');
+            all.forEach(t => { if(!taken.includes(t)) drop.innerHTML += `<option value="${t}">${t}</option>`; });
+        }
+
+        async function join() {
+            myTeam = document.getElementById('team-drop').value;
+            await _supabase.from('squads').insert({ room_code: roomCode, team_name: myTeam, purse: 60, players: [] });
+            localStorage.setItem('team_' + roomCode, myTeam); location.reload();
+        }
+
+        async function start() {
+            document.getElementById('auction-screen').style.display = "block";
+            document.getElementById('my-t').innerText = "TEAM: " + myTeam;
+            _supabase.channel('auc_p').on('postgres_changes', { event: 'UPDATE', table: 'auction_state' }, p => {
+                updateUI(p.new);
+                if(p.new.timer_ends_at) syncT(p.new.timer_ends_at);
+                else cancelAnimationFrame(timerReq);
+            }).subscribe();
+            _supabase.channel('sq_p').on('postgres_changes', { event: 'UPDATE', table: 'squads' }, p => {
+                if(p.new.team_name === myTeam) {
+                    document.getElementById('my-p').innerText = parseFloat(p.new.purse).toFixed(2);
+                    updateSquad(p.new.players);
+                }
+            }).subscribe();
+        }
+
+        function syncT(endAtStr) {
+            cancelAnimationFrame(timerReq);
+            const endAt = new Date(endAtStr).getTime();
+            function run() {
+                const diff = Math.ceil((endAt - Date.now())/1000);
+                const val = diff < 0 ? 0 : diff; // Removed the cap at 10
+                document.getElementById('timer').innerText = val.toString().padStart(2,'0');
+                const root = document.documentElement;
+                if(val > 6) root.style.setProperty('--theme', '#00f2ff');
+                else if(val > 3) root.style.setProperty('--theme', '#facc15');
+                else root.style.setProperty('--theme', '#ff4d4d');
+                if(diff > 0) timerReq = requestAnimationFrame(run);
+            }
+            run();
+        }
+
+        function updateUI(d) {
+            const pO = CRICKET_PLAYERS.find(x => x.name === d.active_player);
+            document.getElementById('p-name').innerText = d.active_player + (pO?.is_overseas ? " (OS)" : "");
+            document.getElementById('p-price').innerText = "₹" + (d.current_bid/100).toFixed(2) + " Cr";
+            if(pO) document.getElementById('p-info').innerText = `${pO.role} | BASE: ₹${pO.base.toFixed(2)} Cr`;
+            const btn = document.getElementById('bid-btn');
+            btn.disabled = (!d.timer_ends_at || d.high_bidder === myTeam);
+            btn.innerText = (d.high_bidder === "NONE") ? "BID (BASE)" : "BID +0.20 Cr";
+        }
+
+        async function bid() {
+            const { data } = await _supabase.from('auction_state').select('*').match({id: 1}).single();
+            if(!data.timer_ends_at || data.high_bidder === myTeam) return;
+            let val = data.high_bidder === "NONE" ? data.current_bid : data.current_bid + 20;
+            let left = Math.ceil((new Date(data.timer_ends_at).getTime() - Date.now())/1000);
+            let nEnd = new Date(new Date(data.timer_ends_at).getTime() + (left <= 7 ? 3000 : (left === 8 ? 2000 : 1000))).toISOString();
+            await _supabase.from('auction_state').update({ current_bid: val, high_bidder: myTeam, timer_ends_at: nEnd }).match({id: 1});
+        }
+
+        async function showAll() {
+            const { data } = await _supabase.from('squads').select('players').eq('room_code', roomCode);
+            let sold = new Set(); data.forEach(t => (t.players || []).forEach(p => sold.add((typeof p === 'string' ? JSON.parse(p) : p).name)));
+            let html = ""; for(let i=0; i<CRICKET_PLAYERS.length; i++){
+                if(i%10===0) html += `<div style='color:var(--theme); border-bottom:1px solid #333; margin:15px 0 5px 0; font-weight:900;'>SET ${Math.floor(i/10)+1}</div>`;
+                const p = CRICKET_PLAYERS[i]; const isSold = sold.has(p.name);
+                html += `<p style='font-size:12px; margin:5px 0; color:${isSold?"#444":"#fff"}'>• ${p.name} ${isSold?"[SOLD]":""}</p>`;
+            }
+            document.getElementById('p-content').innerHTML = html;
+            document.getElementById('p-modal').style.display = 'flex';
+        }
+
+        function updateSquad(players) {
+            let html = "<h4 style='color:var(--theme); text-align:center; margin:0;'>MY SQUAD</h4>";
+            (players || []).forEach(p => {
+                const x = typeof p === 'string' ? JSON.parse(p) : p;
+                html += `<p>• ${x.name} <span style="float:right;">₹${x.price.toFixed(2)}</span></p>`;
+            });
+            document.getElementById('squad-list').innerHTML = html;
+        }
+        init();
+    </script>
+</body>
+</html>

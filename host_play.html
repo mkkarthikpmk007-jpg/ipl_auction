@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AETHRYX - PLAYER</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --theme: #00f2ff; }
+        body { background: #030508; color: #fff; font-family: sans-serif; text-align: center; padding: 15px; margin: 0; }
+        .header-team { background: var(--theme); color: #000; padding: 10px; font-weight: 900; font-size: 18px; text-transform: uppercase; margin-bottom: 10px; border-radius: 0 0 15px 15px; }
+        .purse-bar { background: rgba(0,242,255,0.1); border: 1px solid var(--theme); padding: 10px; border-radius: 12px; color: var(--theme); font-weight: 900; margin-bottom: 10px; }
+        .timer-box { font-size: 50px; color: var(--theme); margin: 10px 0; border: 2px solid var(--theme); display: inline-block; padding: 10px 30px; border-radius: 15px; font-weight: 900; }
+        .btn-bid { background: var(--theme); color: #000; padding: 22px; border-radius: 50px; width: 100%; font-size: 22px; font-weight: 900; border: none; }
+        .btn-bid:disabled { background: #333 !important; color: #777 !important; }
+    </style>
+</head>
+<body>
+    <div id="setup-screen" style="display:none;">
+        <h2 style="color:#00f2ff;">SELECT TEAM</h2>
+        <select id="team-dropdown" style="width:100%; padding:15px; background:#111; color:#fff; border:1px solid #333; margin:10px 0; border-radius:10px;"></select>
+        <button class="btn-bid" onclick="joinTeam()">JOIN AUCTION</button>
+    </div>
+
+    <div id="auction-screen" style="display:none;">
+        <div class="header-team" id="my-team-display">---</div>
+        <div class="purse-bar">WALLET: ₹<span id="my-purse">60.00</span> Cr</div>
+        <div id="timer" class="timer-box">00</div>
+        <h2 id="p-name" style="text-transform:uppercase; margin:5px 0;">READY</h2>
+        <div id="p-role-base" style="color:#facc15; font-size:12px; margin-bottom:10px;">---</div>
+        <h1 id="p-price" style="font-size:38px; margin:10px 0;">₹0.00 Cr</h1>
+        <p id="bidder-info" style="font-size:12px; color:#666;">BIDDER: NONE</p>
+        <button class="btn-bid" id="bid-btn" onclick="sendBid()">BID (BASE)</button>
+        <div id="my-squad-list" style="margin-top:20px; text-align:left; background:#0a0f19; padding:15px; border-radius:15px;"></div>
+    </div>
+
+    <script src="players_list.js"></script>
+    <script>
+        const SB_URL = "https://egwsnptrjcyavfnnanti.supabase.co"; 
+        const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnd3NucHRyamN5YXZmbm5hbnRpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3MDg1NTQsImV4cCI6MjA5MDI4NDU1NH0.ZY9MbJDOaBCjyaWKtm0tiM2s_QzRAU3OXFTCauopaBA";
+        const _supabase = supabase.createClient(SB_URL, SB_KEY);
+        const roomCode = new URLSearchParams(window.location.search).get('room')?.toUpperCase() || "BJG03";
+        let myTeam = localStorage.getItem('joined_team_' + roomCode), timerReq;
+
+        async function init() { if (myTeam) showAuctionScreen(); else showJoinScreen(); }
+
+        async function showJoinScreen() {
+            document.getElementById('setup-screen').style.display = "block";
+            const { data } = await _supabase.from('squads').select('team_name').eq('room_code', roomCode);
+            const all = ["CSK", "RCB", "MI", "KKR", "SRH", "GT", "LSG", "RR", "DC", "PBKS"];
+            const taken = data ? data.map(t => t.team_name) : [];
+            all.forEach(t => { if(!taken.includes(t)) document.getElementById('team-dropdown').innerHTML += `<option value="${t}">${t}</option>`; });
+        }
+
+        async function joinTeam() {
+            myTeam = document.getElementById('team-dropdown').value;
+            const { error } = await _supabase.from('squads').insert({ room_code: roomCode, team_name: myTeam, purse: 60, players: [] });
+            if(!error) { localStorage.setItem('joined_team_' + roomCode, myTeam); showAuctionScreen(); }
+        }
+
+        async function showAuctionScreen() {
+            document.getElementById('setup-screen').style.display = "none";
+            document.getElementById('auction-screen').style.display = "block";
+            document.getElementById('my-team-display').innerText = "TEAM: " + myTeam;
+
+            // Timer & UI updates
+            _supabase.channel('auc_p').on('postgres_changes', { event: 'UPDATE', table: 'auction_state' }, p => {
+                updatePlayerUI(p.new);
+                if(p.new.timer_ends_at) startMobileTimer(new Date(p.new.timer_ends_at).getTime());
+                else cancelAnimationFrame(timerReq);
+            }).subscribe();
+
+            // Squad list updates
+            _supabase.channel('sq_p').on('postgres_changes', { event: 'UPDATE', table: 'squads' }, p => {
+                if(p.new.team_name === myTeam) updateSquadList(p.new.players);
+            }).subscribe();
+
+            // Fetch initial squad
+            const { data } = await _supabase.from('squads').select('*').eq('team_name', myTeam).eq('room_code', roomCode).single();
+            if (data) {
+                document.getElementById('my-purse').innerText = parseFloat(data.purse).toFixed(2);
+                updateSquadList(data.players);
+            }
+        }
+
+        function startMobileTimer(endAt) {
+            cancelAnimationFrame(timerReq);
+            function update() {
+                const diff = Math.ceil((endAt - Date.now())/1000);
+                const val = diff < 0 ? 0 : diff; // Removed cap at 9
+                document.getElementById('timer').innerText = val.toString().padStart(2,'0');
+                const root = document.documentElement;
+                if(val > 6) root.style.setProperty('--theme', '#00f2ff');
+                else if(val > 3) root.style.setProperty('--theme', '#facc15');
+                else root.style.setProperty('--theme', '#ff4d4d');
+                if(val > 0) timerReq = requestAnimationFrame(update);
+            }
+            update();
+        }
+
+        function updatePlayerUI(d) {
+            const pObj = CRICKET_PLAYERS.find(x => x.name === d.active_player);
+            document.getElementById('p-name').innerText = d.active_player + (pObj?.is_overseas ? " (OS)" : "");
+            document.getElementById('p-price').innerText = "₹" + (d.current_bid/100).toFixed(2) + " Cr";
+            document.getElementById('bidder-info').innerText = "BIDDER: " + (d.high_bidder || "NONE");
+            const btn = document.getElementById('bid-btn');
+            btn.disabled = (!d.timer_ends_at || d.high_bidder === myTeam);
+            btn.innerText = (d.high_bidder === "NONE") ? "BID (BASE)" : "BID +0.20 Cr";
+        }
+
+        function updateSquadList(players) {
+            let html = "<h4 style='color:var(--theme); text-align:center; margin:0;'>MY SQUAD</h4>";
+            (players || []).forEach(p => {
+                const x = typeof p === 'string' ? JSON.parse(p) : p;
+                html += `<p style="font-size:12px; margin:7px 0;">• ${x.name} <span style="float:right;">₹${parseFloat(x.price).toFixed(2)} Cr</span></p>`;
+            });
+            document.getElementById('my-squad-list').innerHTML = html;
+        }
+
+        async function sendBid() {
+            const { data } = await _supabase.from('auction_state').select('*').match({id: 1}).single();
+            if(!data.timer_ends_at || data.high_bidder === myTeam) return;
+            let bid = data.high_bidder === "NONE" ? data.current_bid : data.current_bid + 20;
+            let left = Math.ceil((new Date(data.timer_ends_at).getTime() - Date.now())/1000);
+            let nEnd = new Date(new Date(data.timer_ends_at).getTime() + (left <= 7 ? 3000 : (left === 8 ? 2000 : 1000)));
+            await _supabase.from('auction_state').update({ current_bid: bid, high_bidder: myTeam, timer_ends_at: nEnd.toISOString() }).match({id: 1});
+        }
+        init();
+    </script>
+</body>
+</html>
