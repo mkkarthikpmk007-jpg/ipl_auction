@@ -33,7 +33,7 @@ async function togglePause() {
         await _supabase.from('auction_state').update({ timer_ends_at: null }).match({id: 1});
     } else if (d.active_player !== "READY") {
         // Paused -> RESUME
-        const endAt = new Date(Date.now() + 10500).toISOString();
+        const endAt = new Date(Date.now() + 10000).toISOString();
         await _supabase.from('auction_state').update({ timer_ends_at: endAt }).match({id: 1});
     }
 }
@@ -78,8 +78,17 @@ async function processEndOfTimer() {
     if (autoTriggered) return;
     autoTriggered = true;
 
+    // 1. Fetch current state
     const { data: d } = await _supabase.from('auction_state').select('*').match({id: 1}).single();
-    if (!d || d.active_player === "READY" || !d.timer_ends_at) { autoTriggered = false; return; }
+    
+    // 2. Early return if already processed or invalid
+    if (!d || d.active_player === "READY" || !d.timer_ends_at) { 
+        autoTriggered = false; 
+        return; 
+    }
+
+    // 3. IMMEDIATE LOCK: Set timer_ends_at to null in DB to prevent other clients/refreshes from re-triggering
+    await _supabase.from('auction_state').update({ timer_ends_at: null }).match({id: 1});
 
     const overlay = document.getElementById('status-overlay');
     const pObj = CRICKET_PLAYERS.find(x => x.name === d.active_player);
@@ -95,7 +104,6 @@ async function processEndOfTimer() {
             document.getElementById('status-details').innerText = "SKIPPING...";
         }
         
-        // Track unsold players permanently so they don't reappear
         const entry = { name: d.active_player, role: pObj?.role, price: 0, isOS: pObj?.is_overseas };
         const { data: unsoldTeam } = await _supabase.from('squads').select('*').eq('team_name', 'UNSOLD').eq('room_code', roomCode).single();
         if (unsoldTeam) {

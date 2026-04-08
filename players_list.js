@@ -169,7 +169,7 @@ const CRICKET_PLAYERS = [
 ];
 
 // ---------- Player order randomisation ----------
-// Shuffle players within each price set (base value) to ensure varied auction order.
+// Shuffle players in groups of three to vary order while keeping overall set size.
 function shuffleArray(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -177,20 +177,22 @@ function shuffleArray(arr) {
   }
 }
 
-// Group players by their base price (set)
-const _playerGroups = {};
-CRICKET_PLAYERS.forEach(p => {
-  const key = p.base;
-  if (!_playerGroups[key]) _playerGroups[key] = [];
-  _playerGroups[key].push(p);
-});
+// Shuffle each consecutive group of three players
+for (let i = 0; i < CRICKET_PLAYERS.length; i += 3) {
+  const group = CRICKET_PLAYERS.slice(i, i + 3);
+  shuffleArray(group);
+  for (let j = 0; j < group.length; j++) {
+    CRICKET_PLAYERS[i + j] = group[j];
+  }
+}
 
-// Shuffle each group individually
-Object.values(_playerGroups).forEach(group => shuffleArray(group));
-
-// Rebuild CRICKET_PLAYERS preserving the original set order (high to low)
-CRICKET_PLAYERS.length = 0;
-[2.00, 1.75, 1.50, 1.25, 1.00, 0.90, 0.75, 0.50, 0.40, 0.30, 0.20].forEach(base => {
-  if (_playerGroups[base]) CRICKET_PLAYERS.push(..._playerGroups[base]);
-});
+// If there are leftover players (less than three) at the end, shuffle them as well
+const leftoverStart = Math.floor(CRICKET_PLAYERS.length / 3) * 3;
+if (leftoverStart < CRICKET_PLAYERS.length) {
+  const leftover = CRICKET_PLAYERS.slice(leftoverStart);
+  shuffleArray(leftover);
+  for (let j = 0; j < leftover.length; j++) {
+    CRICKET_PLAYERS[leftoverStart + j] = leftover[j];
+  }
+}
 // ---------------------------------------------------

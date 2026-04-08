@@ -67,6 +67,14 @@
         async function start() {
             document.getElementById('auction-screen').style.display = "block";
             document.getElementById('my-t').innerText = "TEAM: " + myTeam;
+
+            // Fetch initial auction state
+            const { data: d } = await _supabase.from('auction_state').select('*').match({id: 1}).single();
+            if (d) {
+                updateUI(d);
+                if (d.timer_ends_at) syncT(d.timer_ends_at);
+            }
+
             _supabase.channel('auc_p').on('postgres_changes', { event: 'UPDATE', table: 'auction_state' }, p => {
                 updateUI(p.new);
                 if(p.new.timer_ends_at) syncT(p.new.timer_ends_at);

@@ -72,6 +72,14 @@
 
         async function init() {
             await fetchTeams();
+            
+            // Fetch initial auction state
+            const { data: d } = await _supabase.from('auction_state').select('*').match({id: 1}).single();
+            if (d) {
+                updateUI(d);
+                if (d.timer_ends_at) startTimer(new Date(d.timer_ends_at).getTime());
+            }
+
             _supabase.channel('auc').on('postgres_changes', { event: 'UPDATE', table: 'auction_state' }, p => {
                 updateUI(p.new);
                 if (p.new.timer_ends_at) startTimer(new Date(p.new.timer_ends_at).getTime());
